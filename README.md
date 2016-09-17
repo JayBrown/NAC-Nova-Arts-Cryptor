@@ -4,13 +4,13 @@
 [![NAC-license](http://img.shields.io/badge/license-MIT+-blue.svg)](https://github.com/JayBrown/NAC-Nova-Arts-Cryptor/blob/master/license.md)
 
 # NAC – Nova Arts Cryptor <img src="https://github.com/JayBrown/NAC-Nova-Arts-Cryptor/blob/master/img/jb-img.png" height="20px"/>
-**Steganography workflows for macOS to encrypt/hide and decrypt/unhide any file of any size in an image file of any size**
+**Steganography workflows for macOS to encrypt and hide any file of any size in an image file of any size, and decrypt them later**
 
-There are good steganographical tools for macOS like Rbcafé's **Outguess**. They apply a very discrete kind of steganography, but that usually comes with a disadvantage: they don't allow you to hide large files in smaller images. Enter NAC, the Nova Arts Cryptor, which applies a dumb (a really dumb) kind of steganography, but it will hide your files nonetheless. NAC will first password-encrypt your target file (AES-256) and then obscure it by simply appending it to an image file of your choice, regardless of the file sizes involved. NAC works with PNG, JPEG, GIF and TIFF images files.
+There are perfectly fine steganographical tools for macOS like Rbcafé's **Outguess**. They apply a very discrete kind of steganography, but that usually comes with a disadvantage: their methods don't allow you to hide large files in smaller images, e.g. a 100 MB DMG in a 10 KB GIF. Enter **NAC**, the **Nova Arts Cryptor**, which applies a dumb (a *really* dumb) kind of steganography, but it will hide your files nonetheless. NAC will first compress your target file or folder with bzip2, then password-encrypt the archive (AES-256) using `openssl`, and finally obscure it by simply appending it to an image file of your choice, regardless of the file sizes involved. NAC currently works with PNG, JPEG, GIF and TIFF images files.
 
-Since NAC only cats two files together instead of interweaving them, the hidden data winds up at the end of the image and can easily be detected; therefore the additional AES encryption. It also means that image hosting services such as **imgur** will strip the hidden data, but it's fine to upload a NAC image to standard file hosting services.
+Since NAC only cats two files together instead of interweaving them, the hidden data winds up at the end of the image file as a single stream, i.e. it can easily be detected; therefore the additional AES encryption. This also means that image hosting services such as **imgur** will strip the hidden data, but it's fine to upload a NAC image to standard file hosting services.
 
-The name of this workflow is a hat-tip to a long defunct and dearly missed German hacking collective, which offered a tool exactly like this one, albeit for Windows only. Ugh. So instead of firing up my Win98 VM every time I need some quick & dirty steg, I thought I'd rather redo it myself. So here you go. Hide away.
+The name of this workflow is a hat-tip to a long defunct and dearly missed German hacking collective, who offered a tool exactly like this one, albeit for Windows only. Ugh. So instead of firing up my Win98 VM every time I need some quick & dirty steg, I thought I'd rather redo it myself. So here you go. Hide away.
 
 ## Installation
 * [Download the latest DMG](https://github.com/JayBrown/NAC-Nova-Arts-Cryptor/releases) and open
@@ -52,5 +52,11 @@ $HOME/Pictures/NAC
 /usr/local/bin/nac-decrypt.sh
 ```
 
+## To do
+* cleanup
+* add checksum information of original tbz archive for additional security
+* workflow for encrypting text selections
+* add support for bitmap format
+
 ## Acknowledgments
-* NAC
+* **NAC** (the *actual* NAC)
