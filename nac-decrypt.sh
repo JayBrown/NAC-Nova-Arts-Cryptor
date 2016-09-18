@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# NAC - Nova Arts Cryptor v1.0.0
+# NAC - Nova Arts Cryptor v1.0.1
 # NAC ➤ Decrypt (shell script version)
 
 LANG=en_US.UTF-8
 export PATH=/usr/local/bin:$PATH
 ACCOUNT=$(/usr/bin/id -un)
-CURRENT_VERSION="1.00"
+CURRENT_VERSION="1.0.1"
 
 # check compatibility
 MACOS2NO=$(/usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $2}')
@@ -39,7 +39,7 @@ if [[ ! -e "$DECRYPT_DIR" ]] ; then
 fi
 rm -rf "$DECRYPT_DIR/"* # 2>/dev/null
 
-# encrypted content directory
+# decrypted content directory
 DEST_DIR="${HOME}/Downloads/NAC"
 if [[ ! -e "$DEST_DIR" ]] ; then
 	mkdir -p "$DEST_DIR"
@@ -95,28 +95,27 @@ else
 	NOTESTATUS="tn"
 fi
 
-# check for update
-NEWEST_VERSION=$(/usr/bin/curl --silent https://api.github.com/repos/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest | /usr/bin/awk '/tag_name/ {print $2}' | xargs)
-if [[ "$NEWEST_VERSION" == "" ]] ; then
-	NEWEST_VERSION="0"
-fi
-NEWEST_VERSION=${NEWEST_VERSION//,}
-if (( $(echo "$NEWEST_VERSION > $CURRENT_VERSION" | /usr/bin/bc -l) )) ; then
-	notify "Update available" "NAC v$NEWEST_VERSION"
-	/usr/bin/open "https://github.com/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest"
-fi
-
 for FILEPATH in "$1" # ALT: "$@"
 do
 
 TARGET_NAME=$(/usr/bin/basename "$FILEPATH")
-# TARGET_PARENT=$(/usr/bin/dirname "$FILEPATH")
 
 # check image type
 TYPE_RAW=$(/usr/bin/file "$FILEPATH" | /usr/bin/awk -F": " '{print $2}')
 TYPE=$(echo "$TYPE_RAW" | /usr/bin/awk -F" " '{print $1}')
 if [[ "$TYPE" != "PNG" ]] && [[ "$TYPE" != "JPEG" ]] && [[ "$TYPE" != "GIF" ]] && [[ "$TYPE" != "TIFF" ]] ; then
-	notify "Error!" "Image format not recognized"
+	EXTENSION="${TARGET_NAME##*.}"
+	if [[ "$EXTENSION" == "" ]] ; then
+		EXTENSION="n/a"
+	fi
+	notify "Error: $EXTENSION" "Format not compatible"
+	exit # ALT: continue
+fi
+
+# read info
+INFO=$(/usr/bin/tail -n 6 "$FILEPATH" | /usr/bin/awk '/-----END INFO-----/{f=0} f; /-----BEGIN INFO-----/{f=1}')
+if [[ "$INFO" == "" ]] ; then
+	notify "Error: no NAC data" "$TARGET_NAME"
 	exit # ALT: continue
 fi
 
@@ -129,7 +128,7 @@ do
 tell application "System Events"
 	activate
 	set theLogoPath to ((path to library folder from user domain) as text) & "Caches:local.lcars.nac:lcars.png"
-	set {thePassword, theButton} to {text returned, button returned} of (display dialog "Enter the passphrase that was used to encrypt the original file." ¬
+	set {thePassword, theButton} to {text returned, button returned} of (display dialog "Enter the passphrase that was used to encrypt the original file or folder." ¬
 		with hidden answer ¬
 		default answer "" ¬
 		buttons {"Cancel", "Enter"} ¬
@@ -163,8 +162,19 @@ fi
 # notify
 notify "Please wait!" "Decrypting original file…"
 
-# read data
-/bin/cat "$FILEPATH" | /usr/bin/awk '/-----END DATA-----/{f=0} f; /-----BEGIN DATA-----/{f=1}' > "$DECRYPT_DIR/target.aes"
+# determine data information
+CRTYPE=$(echo "$INFO" | /usr/bin/grep "type=" | /usr/bin/awk -F"=" '{print $2}')
+OFFSET=$(echo "$INFO" | /usr/bin/grep "offset=" | /usr/bin/awk -F"=" '{print $2}')
+
+# read encrypted data
+/usr/bin/tail -n $OFFSET "$FILEPATH" | /usr/bin/awk '/-----END DATA-----/{f=0} f; /-----BEGIN DATA-----/{f=1}' > "$DECRYPT_DIR/target.aes"
+AES_CHECKSUM1=$(echo "$INFO" | /usr/bin/grep "sha-aes=" | /usr/bin/awk -F"=" '{print $2}')
+AES_CHECKSUM2=$(/usr/bin/shasum -a 256 "$DECRYPT_DIR/target.aes" | /usr/bin/awk '{print $1}')
+if [[ "$AES_CHECKSUM2" != "$AES_CHECKSUM1" ]] ; then
+	notify "Steg error" "Checksums don't match"
+	rm -rf "$DECRYPT_DIR/"*
+	exit # ALT: continue
+fi
 
 # decrypt
 DECRYPT=$(/usr/bin/openssl enc -aes-256-cbc -a -d -salt -pass pass:"$PASSPHRASE" -in "$DECRYPT_DIR/target.aes" -out "$DECRYPT_DIR/target.tbz" 2>&1)
@@ -175,6 +185,13 @@ if [[ "$DECRYPT" != "" ]] ; then
 		notify "Decryption error" "$TARGET_NAME"
 	fi
 	echo "$DECRYPT"
+	rm -rf "$DECRYPT_DIR/"*
+	exit # ALT: continue
+fi
+TBZ_CHECKSUM1=$(echo "$INFO" | /usr/bin/grep "sha-tbz=" | /usr/bin/awk -F"=" '{print $2}')
+TBZ_CHECKSUM2=$(/usr/bin/shasum -a 256 "$DECRYPT_DIR/target.tbz" | /usr/bin/awk '{print $1}')
+if [[ "$TBZ_CHECKSUM2" != "$TBZ_CHECKSUM1" ]] ; then
+	notify "Decryption error" "Checksums don't match"
 	rm -rf "$DECRYPT_DIR/"*
 	exit # ALT: continue
 fi
@@ -192,5 +209,16 @@ rm -rf "$DECRYPT_DIR/"*
 open "$DEST_DIR"
 
 done
+
+# check for update
+NEWEST_VERSION=$(/usr/bin/curl --silent https://api.github.com/repos/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest | /usr/bin/awk '/tag_name/ {print $2}' | xargs)
+if [[ "$NEWEST_VERSION" == "" ]] ; then
+	NEWEST_VERSION="0"
+fi
+NEWEST_VERSION=${NEWEST_VERSION//,}
+if (( $(echo "$NEWEST_VERSION > $CURRENT_VERSION" | /usr/bin/bc -l) )) ; then
+	notify "Update available" "NAC v$NEWEST_VERSION"
+	/usr/bin/open "https://github.com/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest"
+fi
 
 exit # ALT: delete

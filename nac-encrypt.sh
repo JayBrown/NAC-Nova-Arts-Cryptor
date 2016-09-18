@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# NAC - Nova Arts Cryptor v1.0.0
+# NAC - Nova Arts Cryptor v1.0.1
 # NAC ➤ Encrypt (shell script version)
 
 LANG=en_US.UTF-8
 export PATH=/usr/local/bin:$PATH
 ACCOUNT=$(/usr/bin/id -un)
-CURRENT_VERSION="1.00"
+CURRENT_VERSION="1.01"
 
 # check compatibility
 MACOS2NO=$(/usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $2}')
@@ -37,7 +37,7 @@ CRYPT_DIR="$CACHE_DIR/crypt"
 if [[ ! -e "$CRYPT_DIR" ]] ; then
 	mkdir -p "$CRYPT_DIR"
 fi
-rm -rf "$CRYPT_DIR/"* # 2>/dev/null
+rm -rf "$CRYPT_DIR/"*
 
 # pictures directory
 IMG_DIR="${HOME}/Pictures/NAC"
@@ -449,17 +449,6 @@ else
 	NOTESTATUS="tn"
 fi
 
-# check for update
-NEWEST_VERSION=$(/usr/bin/curl --silent https://api.github.com/repos/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest | /usr/bin/awk '/tag_name/ {print $2}' | xargs)
-if [[ "$NEWEST_VERSION" == "" ]] ; then
-	NEWEST_VERSION="0"
-fi
-NEWEST_VERSION=${NEWEST_VERSION//,}
-if (( $(echo "$NEWEST_VERSION > $CURRENT_VERSION" | /usr/bin/bc -l) )) ; then
-	notify "Update available" "NAC v$NEWEST_VERSION"
-	/usr/bin/open "https://github.com/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest"
-fi
-
 for FILEPATH in "$1" # ALT: "$@"
 do
 
@@ -467,7 +456,11 @@ TARGET_NAME=$(/usr/bin/basename "$FILEPATH")
 TARGET_PARENT=$(/usr/bin/dirname "$FILEPATH")
 
 # choose image file
-IMG_LOC=$(/usr/bin/osascript 2>/dev/null << EOT
+IMG_RETURN=""
+BREAKER=""
+until [[ "$IMG_RETURN" == "true" ]]
+do
+	IMG_LOC=$(/usr/bin/osascript 2>/dev/null << EOT
 tell application "System Events"
 	activate
 	set theDirectory to "$IMG_DIR" as string
@@ -476,23 +469,35 @@ tell application "System Events"
 end tell
 theImagePath
 EOT)
-if [[ "$IMG_LOC" == "" ]] || [[ "$IMG_LOC" == "false" ]] ; then
-	exit # ALT: continue
-fi
-
-# check image type
-TYPE_RAW=$(/usr/bin/file "$IMG_LOC" | /usr/bin/awk -F": " '{print $2}')
-TYPE=$(echo "$TYPE_RAW" | /usr/bin/awk -F" " '{print $1}')
-if [[ "$TYPE" == "PNG" ]] ; then
-	TYPE="png"
-elif [[ "$TYPE" == "JPEG" ]] ; then
-	TYPE="jpg"
-elif [[ "$TYPE" == "GIF" ]] ; then
-	TYPE="gif"
-elif [[ "$TYPE" == "TIFF" ]] ; then
-	TYPE="tif"
-else
-	notify "Internal error!" "Image format not recognized"
+	if [[ "$IMG_LOC" == "" ]] || [[ "$IMG_LOC" == "false" ]] ; then
+		BREAKER="true"
+		IMG_RETURN="true"
+		continue
+	fi
+	# check for previous steg
+	INFO=$(/usr/bin/tail -n 6 "$IMG_LOC" | /usr/bin/grep "END INFO")
+	if [[ "$INFO" != "" ]] ; then
+		notify "Steg error" "Image already contains NAC data"
+		continue
+	fi
+	# check image type
+	TYPE_RAW=$(/usr/bin/file "$IMG_LOC" | /usr/bin/awk -F": " '{print $2}')
+	TYPE=$(echo "$TYPE_RAW" | /usr/bin/awk -F" " '{print $1}')
+	if [[ "$TYPE" == "PNG" ]] ; then
+		TYPE="png"
+	elif [[ "$TYPE" == "JPEG" ]] ; then
+		TYPE="jpg"
+	elif [[ "$TYPE" == "GIF" ]] ; then
+		TYPE="gif"
+	elif [[ "$TYPE" == "TIFF" ]] ; then
+		TYPE="tif"
+	else
+		notify "Internal error!" "Image format not recognized"
+		continue
+	fi
+	IMG_RETURN="true"
+done
+if [[ "$BREAKER" == "true" ]] ; then
 	exit # ALT: continue
 fi
 
@@ -535,7 +540,8 @@ EOT)
 		continue
 	fi
 	BUTTON=$(echo "$PW_CHOICE" | /usr/bin/awk -F"@DELIM@" '{print $2}')
-	if [[ "$BUTTON" == "Random" ]] ; then # create random password
+	if [[ "$BUTTON" == "Random" ]] ; then
+		# create random password
 		PASSPHRASE=$(/usr/bin/openssl rand -base64 47 | /usr/bin/tr -d /=+ | /usr/bin/cut -c -32)
 		PW_RETURN="true"
 		continue
@@ -662,6 +668,7 @@ if [[ $(echo "$COMPRESS" | /usr/bin/grep "tar: ") != "" ]] ; then
 	rm -rf "$CRYPT_DIR/"*
 	exit # ALT: continue
 fi
+TBZ_CHECKSUM=$(/usr/bin/shasum -a 256 "$CRYPT_DIR/target.tbz" | /usr/bin/awk '{print $1}')
 
 # encrypt target archive
 ENCRYPT=$(/usr/bin/openssl enc -aes-256-cbc -a -salt -pass pass:"$PASSPHRASE" -in "$CRYPT_DIR/target.tbz" -out "$CRYPT_DIR/target.aes" 2>&1)
@@ -671,14 +678,23 @@ if [[ "$ENCRYPT" != "" ]] ; then
 	rm -rf "$CRYPT_DIR/"*
 	exit # ALT: continue
 fi
+AES_CHECKSUM=$(/usr/bin/shasum -a 256 "$CRYPT_DIR/target.aes" | /usr/bin/awk '{print $1}')
+LINE_COUNT=$(/usr/bin/wc -l "$CRYPT_DIR/target.aes" | /usr/bin/awk '{print $1}' | xargs)
+OFFSET=$(/bin/expr $LINE_COUNT + 8)
 
 # echo delimiters
 echo "
------BEGIN DATA-----" > "$CRYPT_DIR/delim1.base64"
-echo "-----END DATA-----" > "$CRYPT_DIR/delim2.base64"
+-----BEGIN DATA-----" > "$CRYPT_DIR/delim1.txt"
+echo "-----END DATA-----
+-----BEGIN INFO-----
+type=data
+offset=$OFFSET
+sha-tbz=$TBZ_CHECKSUM
+sha-aes=$AES_CHECKSUM
+-----END INFO-----" > "$CRYPT_DIR/delim2.txt"
 
-# read & echo target in base64
-CONCAT=$(/bin/cat "$IMG_LOC" "$CRYPT_DIR/delim1.base64" "$CRYPT_DIR/target.aes" "$CRYPT_DIR/delim2.base64" > "$DEST_DIR/$DEST_NAME" 2>&1)
+# concat image and data
+CONCAT=$(/bin/cat "$IMG_LOC" "$CRYPT_DIR/delim1.txt" "$CRYPT_DIR/target.aes" "$CRYPT_DIR/delim2.txt" > "$DEST_DIR/$DEST_NAME" 2>&1)
 if [[ $(echo "$CONCAT" | /usr/bin/grep "cat: ") != "" ]] ; then
 	echo "$CONCAT"
 	notify "Steg error" "$TARGET_NAME"
@@ -692,5 +708,16 @@ echo "$PASSPHRASE" | /usr/bin/pbcopy
 open "$DEST_DIR"
 
 done
+
+# check for update
+NEWEST_VERSION=$(/usr/bin/curl --silent https://api.github.com/repos/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest | /usr/bin/awk '/tag_name/ {print $2}' | xargs)
+if [[ "$NEWEST_VERSION" == "" ]] ; then
+	NEWEST_VERSION="0"
+fi
+NEWEST_VERSION=${NEWEST_VERSION//,}
+if (( $(echo "$NEWEST_VERSION > $CURRENT_VERSION" | /usr/bin/bc -l) )) ; then
+	notify "Update available" "NAC v$NEWEST_VERSION"
+	/usr/bin/open "https://github.com/JayBrown/NAC-Nova-Arts-Cryptor/releases/latest"
+fi
 
 exit # ALT: delete
